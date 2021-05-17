@@ -138,12 +138,13 @@ Magic{name='Reines', level=100}
     > ```
 
   -  **excludeFilters** ：指定扫描的时候排除哪些组件
-    - @Filter 配置过滤的条件 与**includeFilters**条件配置相同
-
-  -  useDefaultFilters： 默认自动扫描规则
-
-    默认为全部扫描 开启为true
-
+  
+- @Filter 配置过滤的条件 与**includeFilters**条件配置相同
+  
+-  useDefaultFilters： 默认自动扫描规则
+  
+  默认为全部扫描 开启为true
+  
     ```
     useDefaultFilters = false
     ```
@@ -200,4 +201,190 @@ public class MainConfig {
 ```
 
 > @Filter  (type = FilterType.CUSTOM 中指定自定义注解类 class = {MyTypeFilter.class}
+
+#### (4)@Scope
+
+- 概念：设置组件（bean）作用域
+
+- 参数 可设置 默认为（单实例）
+
+  -  prototype 多实例
+  -  singleton 单实例 （默认）
+
+  - request(不常用)：在同一次请求内创建一次
+  - session(不常用)：在同一次会话内创建一次
+
+- 测试 （多实例）
+
+> ```java
+> @Configuration //配置类
+> public class MainConfig2 {
+> 
+> 
+>     /*@Scope：调整作用域
+>      *
+>      * @see ConfigurableBeanFactory#SCOPE_PROTOTYPE
+>      * @see ConfigurableBeanFactory#SCOPE_SINGLETON
+>      * @see org.springframework.web.context.WebApplicationContext#SCOPE_REQUEST
+>      * @see org.springframework.web.context.WebApplicationContext#SCOPE_SESSION
+>      * @return
+>      *
+>      * SCOPE_PROTOTYPE 多实例 多实例情况下 ioc容器启动时不会去调用方法创建对象放在容器中
+>      *                      而是每次获取时才会调用方法 创建对象
+>      * SCOPE_SINGLETON 单实例（默认） ioc容器启动时会调用方法创建对象放到ioc容器中
+>      *                      获取时直接从容器（map.get()）中拿
+>      * SCOPE_REQUEST 同一次请求创建一次实例
+>      * SCOPE_SESSION 同一次session 创建一次实例
+>      */
+>     @Scope("prototype")//设置多实例 作用域
+>     @Bean("Magic")//设置bean id
+>     public Magic magic(){
+>         return new Magic("shine",777);
+>     }
+> 
+> }
+> 
+> @Test
+> void testScope(){
+>     AnnotationConfigApplicationContext applicationContext = new AnnotationConfigApplicationContext(MainConfig2.class);
+> 
+>     System.out.println("已创建ioc容器");
+>     //多实例情况下测试 bean所调用的方法
+>     Object magic1 = applicationContext.getBean("Magic");
+>     Object magic2 = applicationContext.getBean("Magic");
+>     System.out.println(magic1 == magic2); //false	
+> 
+> }
+> ```
+
+#### (5)@Lazy
+
+- 概念：懒加载 
+
+  ​	懒加载 - 针对于单实例使用，在第一次获取 bean 实例时创建对应的 bean 实例
+
+#### (6)@Conditional
+
+- 概念：按照一定条件进行判断，满足条件给容器注册bean
+
+- 使用：
+
+  - ```java
+    Class<? extends Condition>[] value();
+    ```
+
+  参数为类名
+
+- 测试：
+
+  - 编写条件condition类实现condition接口
+
+    ```java
+    //实现条件Condition 接口
+    public class LinuxCondition implements Condition {
+        /**
+     * ConditionContext：判断条件能使用的上下文（环境）
+     * AnnotatedTypeMetadata：注释的信息
+     * @param context
+     * @param metadata
+     * @return
+     */
+        @Override
+        public boolean matches(ConditionContext context, AnnotatedTypeMetadata metadata) {
+            //判断环境是否为linux系统
+            //  context上下文
+            //1.可以获取到当前ioc容器的beanFactory工厂
+            ConfigurableListableBeanFactory beanFactory = context.getBeanFactory();
+            //2.获取当前类加载器
+            ClassLoader classLoader = context.getClassLoader();
+            //3.获取当前系统环境信息
+            Environment environment = context.getEnvironment();
+            //4.获取到bean定义的注册类
+            BeanDefinitionRegistry registry = context.getRegistry();
+    
+            //获取系统信息
+            String property = environment.getProperty("os.name");
+    
+            //判断容器是否包含某个bean
+            boolean definition = registry.containsBeanDefinition("Magic");
+            //property中不包含window就可以通过
+            if(!property.contains("Windows")) {
+                return true;
+            }
+            return false;
+        }
+    }
+    ```
+
+  -  @Conditional(WindowsCondition.class)//满足当前条件这个类才生效
+
+    注解添加到类或方法上
+
+#### (7)@Import
+
+- 概念：快速导入组件到容器
+
+- 使用：
+
+  - 三种方式
+    - (1).@Import(要导入到容器的组件)：容器自动注册这个组件 id默认为组件的全类名
+    - (2).ImportSelector:返回需要导入的组件的全类名数组
+    - (3).ImportBeanDefinitionRegistrar：手动注册bean到容器
+
+  ```java
+  @Import({Planet.class, MyImportSelector.class,MyImportBeanDefinitionRegistrar.class})
+  ```
+
+  对应三种方式的导入
+
+  > - MyImportSelector.class 自定义编辑返回需要导入的组件 实现ImportSelect接口
+  >
+  > ```java
+  > /**
+  >  * @Author Robert
+  >  * @create 2021/5/17 15:59
+  >  * @Version 1.0
+  >  * @Description: import 导入选择器
+  >  */
+  > //自定义编辑返回需要导入的组件
+  > public class MyImportSelector implements ImportSelector{
+  >     //返回值为要返回的组件全类名 数组
+  >     //AnnotationMetadata :当前
+  >     @Override
+  >     public String[] selectImports(AnnotationMetadata importingClassMetadata) {
+  >         //importingClassMetadata
+  >         //方法不能返回null值
+  >         return new String[]{"com.geek.bean.Star"};
+  >     }
+  > 
+  >     @Override
+  >     public Predicate<String> getExclusionFilter() {
+  >         return null;
+  >     }
+  > }
+  > ```
+  >
+  > - MyImportBeanDefinitionRegistrar.class 手动注册bean
+  >
+  > ```java
+  > public class MyImportBeanDefinitionRegistrar implements ImportBeanDefinitionRegistrar {
+  > 
+  > 
+  >     /**
+  >      * AnnotationMetadata 当前类的注解信息
+  >      * BeanDefinitionRegistry bean定义的注册类
+  >      *         把所有要添加到容器中的bean，调用 registry.registerBeanDefinition();方法手动注册
+  >      * @param importingClassMetadata
+  >      * @param registry
+  >      */
+  >     @Override
+  >     public void registerBeanDefinitions(AnnotationMetadata importingClassMetadata, BeanDefinitionRegistry registry) {
+  > 
+  >         //指定bean定义类型
+  >         RootBeanDefinition beanDefinition = new RootBeanDefinition(School.class);
+  >         //注册一个bean，指定bean名 手动注册
+  >         registry.registerBeanDefinition("school",beanDefinition);
+  >     }
+  > }
+  > ```
 

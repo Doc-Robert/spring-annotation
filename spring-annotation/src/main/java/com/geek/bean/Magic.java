@@ -7,7 +7,6 @@ package com.geek.bean;
  * @Description:
  */
 
-
 public class Magic {
 
     private String name;
@@ -18,7 +17,6 @@ public class Magic {
         this.name = name;
         this.level = level;
     }
-
 
     public void setName(String name) {
         this.name = name;
@@ -37,9 +35,9 @@ public class Magic {
 
     @Override
     public String toString() {
-        return "Magic{" +
+        return "Magic[" +
                 "name='" + name + '\'' +
                 ", level=" + level +
-                '}';
+                ']';
     }
 }
