@@ -83,4 +83,14 @@ class SpringAnnotationApplicationTests {
             System.out.println(name);
         }
     }
+
+    @Test
+    void testFactoryBean(){
+
+        AnnotationConfigApplicationContext applicationContext = new AnnotationConfigApplicationContext(MainConfig2.class);
+        Object bean = applicationContext.getBean("&schoolFactoryBean"); //+ &符 这样获取的就不是School对象 而是SchoolFactoryBean
+        //String FACTORY_BEAN_PREFIX = "&"; beanFactory 修饰符
+        System.out.println(bean);
+
+    }
 }

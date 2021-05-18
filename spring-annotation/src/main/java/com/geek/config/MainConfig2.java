@@ -2,6 +2,7 @@ package com.geek.config;
 
 import com.geek.bean.Magic;
 import com.geek.bean.Planet;
+import com.geek.bean.SchoolFactoryBean;
 import com.geek.condition.LinuxCondition;
 import com.geek.condition.MyImportBeanDefinitionRegistrar;
 import com.geek.condition.MyImportSelector;
@@ -72,6 +73,17 @@ public class MainConfig2 {
      *      (1).@Import(要导入到容器的组件)：容器自动注册这个组件 id默认为组件的全类名
      *      (2).ImportSelector:返回需要导入的组件的全类名数组
      *      (3).ImportBeanDefinitionRegistrar：手动注册bean到容器
+     *  -4.使用Spring提供的 @FactoryBean 工厂bean
+     *      (1).使用 默认获取到的是工厂bean调用getObject方法所创建的对象
+     *      (2).需要获取该bean本身 可以在bean id前添加修饰符 & 这样就可以获取到其本身
+     *
+     * @see SchoolFactoryBean#getObject()
+     * @see org.springframework.beans.factory.BeanFactory#FACTORY_BEAN_PREFIX
+     * @see org.springframework.beans.factory.FactoryBean
      */
+    @Bean //注入bean容器    实际获取的都是School对象
+    public SchoolFactoryBean schoolFactoryBean(){
+        return new SchoolFactoryBean();
+    }
 
 }
