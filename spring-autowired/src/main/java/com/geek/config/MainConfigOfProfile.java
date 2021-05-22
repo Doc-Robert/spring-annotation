@@ -17,7 +17,9 @@ import java.beans.PropertyVetoException;
  * Profile：
  *      是spring为我们提供可以根据当前环境，动态的激活和切换一系列组件的功能
  *      指定组件在哪一种环境下才能被注册到环境中，不指定，则任何环境下都能注册这个组件
- *      环境标识 只有环境被激活的时候 才会被激活
+ *      环境标识 只有环境被激活的时候 才会被激活. 默认为default环境
+ *      当写在配置类上时，只有指定环境的时候，整个配置类里面的所有配置才能开始生效
+ *      没有profile 标识的bean 则在任何环境都是加载的
  *
  * @see org.springframework.context.annotation.Profile
  */
@@ -40,7 +42,6 @@ public class MainConfigOfProfile implements EmbeddedValueResolverAware {
 
     //测试环境
     /**
-     *
      * @param pwd //与前面的password一致 注解标注于参数
      * @return
      * @throws PropertyVetoException

@@ -13,14 +13,14 @@ public class SpringAutowiredApplicationTests {
 
     AnnotationConfigApplicationContext applicationContext = new AnnotationConfigApplicationContext(MainConfigOfAutowired.class);
 
-    @Test
-    void testAutowired() {
-        BookService bookService = applicationContext.getBean(BookService.class);
-        System.out.println(bookService);
-        Master master = applicationContext.getBean(Master.class);
-        System.out.println(master);
-
-        applicationContext.close();
-    }
+//    @Test
+//    void testAutowired() {
+//        BookService bookService = applicationContext.getBean(BookService.class);
+////        System.out.println(bookService);
+//        Master master = applicationContext.getBean(Master.class);
+////        System.out.println(master);
+//
+//        applicationContext.close();
+//    }
 
 }

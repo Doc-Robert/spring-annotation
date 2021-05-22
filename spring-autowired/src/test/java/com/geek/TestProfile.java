@@ -15,11 +15,19 @@ import javax.sql.DataSource;
  */
 @SpringBootTest
 public class TestProfile {
-
-    AnnotationConfigApplicationContext applicationContext= new AnnotationConfigApplicationContext(MainConfigOfProfile.class);
-
+    //激活环境
+    //使用命令行动态参数：在虚拟机参数位置加载 -Dspring.profiles.active=test
+    //也可以用代码方式
     @Test
     void profileTest(){
+        AnnotationConfigApplicationContext applicationContext= new AnnotationConfigApplicationContext(MainConfigOfProfile.class);
+        //1.创建applicationContext
+        //2，设置需要激活的环境
+        applicationContext.getEnvironment().setActiveProfiles("Test","Dev");
+        //3.注册配置类
+        applicationContext.register(MainConfigOfProfile.class);
+        //4.启动刷新容器
+//        applicationContext.refresh();
         String[] beanNamesForType = applicationContext.getBeanNamesForType(DataSource.class);
         for (String name : beanNamesForType) {
             System.out.println(name);

@@ -14,7 +14,7 @@ import org.springframework.context.annotation.Configuration;
  *  --bean的生命周期：
  *          bean创建 --- 初始化 --- 销毁的过程
  *  容器管理bean的生命周期
- *     可以自定义初始化和销毁方法：容器在bean进行到当前2生命周期的时候
+ *     可以自定义初始化和销毁方法：容器在bean进行到当前生命周期的时候
  *  来调用我们自定义初始化和销毁方法
  *
  *  构造（创建对象）

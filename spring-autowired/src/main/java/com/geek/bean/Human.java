@@ -23,20 +23,20 @@ public class Human implements ApplicationContextAware, BeanNameAware, EmbeddedVa
     //ApplicationContextAware 接口 的setcontext方法
     @Override
     public void setApplicationContext(ApplicationContext applicationContext) throws BeansException {
-        System.out.println("传入的IOC："+applicationContext);
+//        System.out.println("传入的IOC："+applicationContext);
         this.applicationContext = applicationContext;
     }
 
     //ioc 创建对象的bean的名字
     @Override
     public void setBeanName(String name) {
-        System.out.println("当前bean的名字："+name);
+//        System.out.println("当前bean的名字："+name);
 
     }
     //解析string中的占位符
     @Override
     public void setEmbeddedValueResolver(StringValueResolver resolver) {
         String resolveStringValue = resolver.resolveStringValue("你好${os.name}");
-        System.out.println("解析的字符串"+resolveStringValue);
+//        System.out.println("解析的字符串"+resolveStringValue);
     }
 }

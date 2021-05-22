@@ -35,6 +35,6 @@ public class Master {
     //标注在参数上
     public Master(@Autowired Servant servant) {
         this.servant = servant;
-        System.out.println("从者 。。。。。有参构造器");
+//        System.out.println("从者 。。。。。有参构造器");
     }
 }

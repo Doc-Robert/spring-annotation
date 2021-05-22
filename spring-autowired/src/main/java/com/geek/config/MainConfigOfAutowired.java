@@ -24,7 +24,7 @@ import org.springframework.context.annotation.Primary;
  *      (2)、如果找到多个相同类型的组件 再将属性的名称作为属性id 去容器中查找  applicationContext.getBean(dookDao);
  *      (3)、使用@Qualifier("bookDao")  使用@Qualifier指定需要装配的di，而不是使用属性名
  *      (4)、自动装配默认一定要将属性赋值，没有则会报错
- *          可以使用@Autowired(required = false)//装配是否必须 默认为true
+ *          可以使用@Autowired(required = false)    //装配是否必须 默认为true
  *      (5)、可以使用 @Primary 指定首选自动装配 让Spring自动装配的时候，默认使用首选的Bean
  *          也可以继续使用 @Qualifier 指定需要转配的bean的名字
  * 2、@Resource注解 （JSR250里规定）和 @Inject注解 （JSR330）
