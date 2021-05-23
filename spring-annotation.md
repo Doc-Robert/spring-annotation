@@ -962,3 +962,5 @@ public class Human implements ApplicationContextAware, BeanNameAware, EmbeddedVa
 
 ## 1.5 Aop
 
+- 概念：Aop指在程序运行期间动态的将某段代码切入到指定的方法指定位置运行的编程方式；
+
