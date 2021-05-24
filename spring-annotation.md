@@ -962,5 +962,192 @@ public class Human implements ApplicationContextAware, BeanNameAware, EmbeddedVa
 
 ## 1.5 Aop
 
+### AOP使用
+
 - 概念：Aop指在程序运行期间动态的将某段代码切入到指定的方法指定位置运行的编程方式；
+
+- 使用：
+
+  -  **导入Aop模块 spring-aspects 面向切面包maven**
+
+  ```xml
+  <!--springAop-->
+  <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-aspects</artifactId>
+  </dependency>
+  ```
+
+  -  **定义一个业务逻辑类（MathCalculator）;在业务运行时将日志打印（方法之前，方法结束，方法出现异常时）**
+
+  ```java
+  /**
+   * @Author Robert
+   * @create 2021/5/23 11:27
+   * @Version 1.0
+   * @Description:  aop 业务逻辑 数学计算器实例
+   */
+  public class MathCalculator {
+      public int div(int i, int j){
+          return i/j;
+      }
+  }
+  ```
+
+  -   **定义日志切面类（LogAspects）;切面类里的方法需要动态感知MathCalculator#div方法的运行 然后对应执行**
+  -  **给切面类的目标方法标注何时何地运行（通知注解）**
+  - **必须告诉spring 哪个是切面类（给切面类增加注解@Aspect）**
+
+  ```java
+  /**
+   * @Author Robert
+   * @create 2021/5/23 11:29
+   * @Version 1.0
+   * @Description: aop 业务日志 切面类
+   * -@Aspect注解告诉spring 表示当前类为一个切面类
+   */
+  
+  @Aspect
+  public class LogAspects {
+  
+      //抽取公共切入点表达式
+      @Pointcut("execution(public int com.geek.aop.MathCalculator.*(..))")
+      public void pointcut(){ }
+  
+      //在业务运行之前 触发切入；切入点表达式（指定在哪个方法进行切入）（*(..)）
+  //    @Before(" public int com.geek.aop.MathCalculator.div(int,int)")//参数为 目标方法全类名 方法类型和返回值类型
+      @Before("com.geek.aop.LogAspects.pointcut()")
+      public void LogStart(JoinPoint joinPoint){
+          //获取参数列表
+          Object[] args = joinPoint.getArgs();
+          //joinPoint 获取切入 方法名
+          //注意：JoinPoint 参数必须写在参数表 第一位置
+          System.out.println(""+joinPoint.getSignature().getName()+"业务运行@Before，参数列表为:{"+ Arrays.asList(args) +"}");
+      }
+  
+      //在业务运行结束后 触发 后置通知
+      @After("pointcut()")
+      public void LogEnd(JoinPoint joinPoint){
+          System.out.println(""+ joinPoint.getSignature().getName()+"业务运行结束.@After");
+      }
+  
+      //在业务运行正常返回结果
+      @AfterReturning(value = "pointcut()",returning="result")//returning指定谁来封装返回值
+      public void LogReturn(JoinPoint joinPoint, Object result){
+          System.out.println(""+joinPoint.getSignature().getName()+"业务正常返回@AfterReturning，运行结果:{"+result+"}");
+      }
+  
+      //在业务运行时异常 返回
+      @AfterThrowing(value = "pointcut()",throwing = "exception")
+      public void LogException(JoinPoint joinPoint, Exception exception){
+          System.out.println(""+joinPoint.getSignature().getName()+"业务执行异常@AfterThrowing，异常信息为:{"+exception+"}");
+      }
+  }
+  ```
+
+  > **切面的通知方法：**
+  >
+  > -  前置通知(@Before)：LogStart 在目标方法运行之前运行
+  > -  后置通知(@After)：LogEnd 在目标方法运行结束后 运行 （无论方法执行是否正常，都会调用）
+  > -  返回通知(@AfterReturning)：LogReturn 在目标方法正常返回之后运行
+  > -  异常通知(@AfterThrowing)：LogException 目标方法出现异常后运行
+  > -  环绕通知(@Around)：动态代理，手动推进目标方法运行（joinPoint.procced()）
+  -  **将切面类 和业务逻辑类(目标方法的所在类) 都加入到spring容器中**
+  - **【关键】给配置类 增加 @EnableAspectJAutoProxy 注解基于注解的Aop模式**
+
+  MainConfigOfAop
+
+  ```java
+  @EnableAspectJAutoProxy //同在配置文件中 开启 切面自动代理
+  @Configuration
+  public class MainConfigOfAop {
+  
+      //将业务逻辑类加入到容器中
+      @Bean
+      public MathCalculator mathCalculator(){
+          return new MathCalculator();
+      }
+  
+      //切面类 加入到容器中
+      @Bean
+      public LogAspects logAspects(){
+          return new LogAspects();
+      }
+  }
+  ```
+
+  - 测试：
+
+    ```java
+        /**
+         * Aop 注解版测试
+         */
+        @Test
+        void contextLoadsAopTest() {
+            AnnotationConfigApplicationContext applicationContext = new AnnotationConfigApplicationContext(MainConfigOfAop.class);
+    
+            //注意： 不要自己创建对象
+    //        MathCalculator mathCalculator = new MathCalculator();
+    //        mathCalculator.div();
+            //从容器中获取
+            MathCalculator mathCalculator = applicationContext.getBean(MathCalculator.class);
+            mathCalculator.div(1,1);
+        }
+    ```
+
+### Aop原理
+
+#### (1). @EnableAspectJAutoProxy 注解
+
+1. 进入后其使用了  `@Import`(AspectJAutoProxyRegistrar.class)；给容器中导入**AspectJAutoProxyRegistrar**；利用**AspectJAutoProxyRegistrar**自定义给容器注册bean
+
+2. 然后调用**AopConfigUtils.registerAspectJAnnotationAutoProxyCreatorIfNecessary**(registry);//（注册Aop注解自动代理创建器 如果需要的话）；注册一个 **AspectJ 自动代理创建器(AnnotationAwareAspectJAutoProxyCreator)**
+
+3.  会继续调用**registerOrEscalateApcAsRequired**(AnnotationAwareAspectJAutoProxyCreator.class, registry, source);方法。
+
+   internalAutoProxyCreator = AnnotationAwareAspectJAutoProxyCreator
+
+     注册/升级一个名为 xxx.**internalAutoProxyCreator** 的 bean 定义信息(启动的类型指定为 **AnnotationAwareAspectJAutoProxyCreator)**
+
+   > **registerOrEscalateApcAsRequired**方法内部
+
+   ```java
+   @Nullable //注册internalAutoProxyCreator bean
+   private static BeanDefinition registerOrEscalateApcAsRequired(
+         Class<?> cls, BeanDefinitionRegistry registry, @Nullable Object source) {
+   
+      Assert.notNull(registry, "BeanDefinitionRegistry must not be null");
+   	//先判断是否已注册过对应的bean实例 以及采取的措施
+      if (registry.containsBeanDefinition(AUTO_PROXY_CREATOR_BEAN_NAME)) {
+         BeanDefinition apcDefinition = registry.getBeanDefinition(AUTO_PROXY_CREATOR_BEAN_NAME);
+         if (!cls.getName().equals(apcDefinition.getBeanClassName())) {
+            int currentPriority = findPriorityForClass(apcDefinition.getBeanClassName());
+            int requiredPriority = findPriorityForClass(cls);
+            if (currentPriority < requiredPriority) {
+               apcDefinition.setBeanClassName(cls.getName());
+            }
+         }
+         return null;
+      }
+   	//创建一个新的 bean定义对象
+      RootBeanDefinition beanDefinition = new RootBeanDefinition(cls);
+       //设置定义的信息
+      beanDefinition.setSource(source);
+      beanDefinition.getPropertyValues().add("order", Ordered.HIGHEST_PRECEDENCE);
+      beanDefinition.setRole(BeanDefinition.ROLE_INFRASTRUCTURE);
+       //向ioc容器注册对应的bean定义信息对象
+      registry.registerBeanDefinition(AUTO_PROXY_CREATOR_BEAN_NAME, beanDefinition);
+       //返回 bean 定义对象
+      return beanDefinition;
+   }
+   ```
+
+   **其他**：
+
+4. AnnotationAwareAspectJAutoProxyCreator组件 ：
+   该组件的继承关系：
+
+![image-20210524105600309](spring-annotation.assets/image-20210524105600309.png)
+
+
 

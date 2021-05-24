@@ -2,6 +2,7 @@ package com.geek.config;
 
 import com.geek.aop.LogAspects;
 import com.geek.aop.MathCalculator;
+import org.springframework.beans.factory.BeanFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.EnableAspectJAutoProxy;
@@ -39,6 +40,40 @@ import org.springframework.context.annotation.EnableAspectJAutoProxy;
  * @see org.aspectj.lang.annotation.Aspect
  *
  * 7、【关键】给配置类 增加 @EnableAspectJAutoProxy 注解基于注解的Aop模式
+ *      spring 中 的Enablexxx 注解功能都是开启某些功能
+ *
+ * 总结：
+ *     1、将业务逻辑组件和切面类都加入到容器，并且需要告诉spring哪个是切面类@Aspect
+ *     2、在切面类的通知方法上标注通知注解 ，并且告诉spring何时何运行（切入点表达式）
+ *     3、必须开启基于注解的Aop模式@EnableAspectJAutoProxy
+ * @see EnableAspectJAutoProxy
+ * Aop原理：[给容器注册了什么组件，该组件什么时候工作，以及该组件的功能]
+ *      1.@EnableAspectJAutoProxy是什么
+ *          使用@Import(AspectJAutoProxyRegistrar.class)；给容器中导入AspectJAutoProxyRegistrar
+ *          利用AspectJAutoProxyRegistrar自定义给容器注册bean
+ *          然后调用AopConfigUtils.registerAspectJAnnotationAutoProxyCreatorIfNecessary(registry);//注册Aop注解自动代理创建器 如果需要的话
+ *          会继续调用registerOrEscalateApcAsRequired(AnnotationAwareAspectJAutoProxyCreator.class, registry, source);//
+ *          org.springframework.aop.config.internalAutoProxyCreator = class org.springframework.aop.aspectj.annotation.AnnotationAwareAspectJAutoProxyCreator
+ *          注册/升级一个名为 xxx.internalAutoProxyCreator 的 bean 定义信息(启动的类型指定为 AnnotationAwareAspectJAutoProxyCreator)
+ *          //
+ *          最后其他选项拿到 EnableAspectJAutoProxy这个注解的信息proxyTargetClass 和 exposeProxy 是否为 true ；等进行其他一系列工作
+ * @see org.springframework.aop.aspectj.annotation.AnnotationAwareAspectJAutoProxyCreator
+ * @see  org.springframework.aop.aspectj.autoproxy.AspectJAwareAdvisorAutoProxyCreator
+ *      2.AnnotationAwareAspectJAutoProxyCreator （1.中注册的该类型的组件）组件功能
+ *          AnnotationAwareAspectJAutoProxyCreator extends AspectJAwareAdvisorAutoProxyCreator //父类·AspectJAwareAdvisorAutoProxyCreator
+ *              AspectJAwareAdvisorAutoProxyCreator extends AbstractAdvisorAutoProxyCreator//父类 AbstractAdvisorAutoProxyCreator
+ *                  AbstractAdvisorAutoProxyCreator extends AbstractAutoProxyCreator//父类 AbstractAutoProxyCreator 抽象的自动代理创建器
+ *                      AbstractAutoProxyCreator extends ProxyProcessorSupport // 父类 ProxyProcessorSupport 代理处理器支持
+ *                      并且实现了implements SmartInstantiationAwareBeanPostProcessor, BeanFactoryAware //SmartInstantiationAwareBeanPostProcessor的bean后置处理器
+ *                      主要关注 bean的后置处理器 （bean 初始化完成前后所做的事情）、以及自动装配BeanFactory
+ *
+ *                      @see org.springframework.aop.framework.autoproxy.AbstractAutoProxyCreator#setBeanFactory(BeanFactory)
+ *                      AbstractAutoProxyCreator.setBeanFactory();
+ *                      AbstractAutoProxyCreator中 有后置处理器的逻辑
+ *                      AbstractAdvisorAutoProxyCreator.setBeanFactory（抽象的通知自动代理创建器）
+ *                          在该方法内部调用 initBeanFactory()
+ *                      AnnotationAwareAspectJAutoProxyCreator.initBeanFactory
+ *
  */
 @EnableAspectJAutoProxy //同在配置文件中 开启 切面自动代理
 @Configuration

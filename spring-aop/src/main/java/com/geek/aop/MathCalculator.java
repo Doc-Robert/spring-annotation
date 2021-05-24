@@ -7,7 +7,6 @@ package com.geek.aop;
  * @Description:  aop 业务逻辑 数学计算器实例
  */
 public class MathCalculator {
-
     public int div(int i, int j){
         return i/j;
     }
