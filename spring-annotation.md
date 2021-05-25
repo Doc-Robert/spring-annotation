@@ -1,4 +1,4 @@
-# Spring 注解驱动 ADD
+#       Spring 注解驱动 ADD
 
 ![image-20210512154414405](spring-annotation.assets/image-20210512154414405.png)
 
@@ -1151,3 +1151,114 @@ public class Human implements ApplicationContextAware, BeanNameAware, EmbeddedVa
 
 
 
+#### (2).创建和注册AnnotationAwareAspectJAutoProxyCreator过程
+
+上一步最终注册了一个**internalAutoProxyCreator**  的 类型为**AnnotationAwareAspectJAutoProxyCreator** 的定义信息
+
+1. 当测试方法运行时 ，传入主配置类来创建IOC容器使用的是**AnnotationConfigApplicationContext**类的有参构造器，它具体分为下面三步：
+
+   - 首先使用无参构造器创建对象
+
+   - 再来把主配置类注册进来
+
+   - 最后调用refresh()方法刷新容器，刷新容器就是要把容器中的所有bean都创建出来，也就是说这就像初始化容器一样
+
+   ![image-20210525140820584](spring-annotation.assets/image-20210525140820584.png)
+
+2. 会调用 `registerBeanPostProcessors(beanFactory)` 方法，该方法用于创建**拦截 bean 实例创建的 bean 后置处理器**
+
+```java
+/**
+ * Instantiate and register all BeanPostProcessor beans,
+ * respecting explicit order if given.
+ * <p>Must be called before any instantiation of application beans.
+ */
+protected void registerBeanPostProcessors(ConfigurableListableBeanFactory beanFactory) {
+   PostProcessorRegistrationDelegate.registerBeanPostProcessors(beanFactory, this);
+}
+```
+
+​		我们继续跟进方法调用栈，如下图所示，可以看到现在是定位到 `PostProcessorRegistrationDelegate` 类的 `registerBeanPostProcessors()` 方法中了。
+
+```java
+public static void registerBeanPostProcessors(
+      ConfigurableListableBeanFactory beanFactory, AbstractApplicationContext applicationContext) {
+
+   //在bean工厂中 获取所有BeanPostProcessor类型的 bean 实例 
+   String[] postProcessorNames = beanFactory.getBeanNamesForType(BeanPostProcessor.class, true, false);
+
+   // Register BeanPostProcessorChecker that logs an info message when
+   // a bean is created during BeanPostProcessor instantiation, i.e. when
+   // a bean is not eligible for getting processed by all BeanPostProcessors.
+   // 额外注册一个 BeanPostProcessorChecker 类型的 addBeanPostProcessor bean后置处理器
+   int beanProcessorTargetCount = beanFactory.getBeanPostProcessorCount() + 1 + postProcessorNames.length;
+   beanFactory.addBeanPostProcessor(new BeanPostProcessorChecker(beanFactory, beanProcessorTargetCount));
+
+   // Separate between BeanPostProcessors that implement PriorityOrdered,
+   // Ordered, and the rest.
+   List<BeanPostProcessor> priorityOrderedPostProcessors = new ArrayList<>();
+   List<BeanPostProcessor> internalPostProcessors = new ArrayList<>();
+   List<String> orderedPostProcessorNames = new ArrayList<>();
+   List<String> nonOrderedPostProcessorNames = new ArrayList<>();
+   for (String ppName : postProcessorNames) {
+      if (beanFactory.isTypeMatch(ppName, PriorityOrdered.class)) {
+         BeanPostProcessor pp = beanFactory.getBean(ppName, BeanPostProcessor.class);
+         priorityOrderedPostProcessors.add(pp);
+         if (pp instanceof MergedBeanDefinitionPostProcessor) {
+            internalPostProcessors.add(pp);
+         }
+      }
+      else if (beanFactory.isTypeMatch(ppName, Ordered.class)) {
+         orderedPostProcessorNames.add(ppName);
+      }
+      else {
+         nonOrderedPostProcessorNames.add(ppName);
+      }
+   }
+
+   // First, register the BeanPostProcessors that implement PriorityOrdered.
+   sortPostProcessors(priorityOrderedPostProcessors, beanFactory);
+   registerBeanPostProcessors(beanFactory, priorityOrderedPostProcessors);
+
+   // Next, register the BeanPostProcessors that implement Ordered.
+   List<BeanPostProcessor> orderedPostProcessors = new ArrayList<>(orderedPostProcessorNames.size());
+   for (String ppName : orderedPostProcessorNames) {
+      BeanPostProcessor pp = beanFactory.getBean(ppName, BeanPostProcessor.class);
+      orderedPostProcessors.add(pp);
+      if (pp instanceof MergedBeanDefinitionPostProcessor) {
+         internalPostProcessors.add(pp);
+      }
+   }
+   sortPostProcessors(orderedPostProcessors, beanFactory);
+   registerBeanPostProcessors(beanFactory, orderedPostProcessors);
+
+   // Now, register all regular BeanPostProcessors.
+   List<BeanPostProcessor> nonOrderedPostProcessors = new ArrayList<>(nonOrderedPostProcessorNames.size());
+   for (String ppName : nonOrderedPostProcessorNames) {
+      BeanPostProcessor pp = beanFactory.getBean(ppName, BeanPostProcessor.class);
+      nonOrderedPostProcessors.add(pp);
+      if (pp instanceof MergedBeanDefinitionPostProcessor) {
+         internalPostProcessors.add(pp);
+      }
+   }
+   registerBeanPostProcessors(beanFactory, nonOrderedPostProcessors);
+
+   // Finally, re-register all internal BeanPostProcessors.
+   sortPostProcessors(internalPostProcessors, beanFactory);
+   registerBeanPostProcessors(beanFactory, internalPostProcessors);
+
+   // Re-register post-processor for detecting inner beans as ApplicationListeners,
+   // moving it to the end of the processor chain (for picking up proxies etc).
+   beanFactory.addBeanPostProcessor(new ApplicationListenerDetector(applicationContext));
+}
+```
+
+
+
+​		1、先按照类型拿到IOC容器中所有需要创建的后置处理器，即先获取IOC容器中已经定义了的需要创建对象的所有BeanPostProcessor。这可以从如下这行代码中得知：
+
+String[] postProcessorNames = beanFactory.getBeanNamesForType(BeanPostProcessor.class, true, false);
+1
+你可能要问了，为什么IOC容器中会有一些已定义的BeanPostProcessor呢？这是因为在前面创建IOC容器时，需要先传入配置类，而我们在解析配置类的时候，由于这个配置类里面有一个@EnableAspectJAutoProxy注解，对于该注解，我们之前也说过，它会为我们容器中注册一个AnnotationAwareAspectJAutoProxyCreator（后置处理器），这还仅仅是这个@EnableAspectJAutoProxy注解做的事，除此之外，容器中还有一些默认的后置处理器的定义。
+
+所以，程序运行到这，容器中已经有一些我们将要用的后置处理器了，只不过现在还没创建对象，都只是一些定义，也就是说容器中有哪些后置处理器。
