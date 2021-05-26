@@ -1182,83 +1182,376 @@ protected void registerBeanPostProcessors(ConfigurableListableBeanFactory beanFa
 
 ```java
 public static void registerBeanPostProcessors(
-      ConfigurableListableBeanFactory beanFactory, AbstractApplicationContext applicationContext) {
+    ConfigurableListableBeanFactory beanFactory, AbstractApplicationContext applicationContext) {
 
-   //在bean工厂中 获取所有BeanPostProcessor类型的 bean 实例 
-   String[] postProcessorNames = beanFactory.getBeanNamesForType(BeanPostProcessor.class, true, false);
+    //在bean工厂中 获取所有BeanPostProcessor类型的 bean 实例 
+    String[] postProcessorNames = beanFactory.getBeanNamesForType(BeanPostProcessor.class, true, false);
 
-   // Register BeanPostProcessorChecker that logs an info message when
-   // a bean is created during BeanPostProcessor instantiation, i.e. when
-   // a bean is not eligible for getting processed by all BeanPostProcessors.
-   // 额外注册一个 BeanPostProcessorChecker 类型的 addBeanPostProcessor bean后置处理器
-   int beanProcessorTargetCount = beanFactory.getBeanPostProcessorCount() + 1 + postProcessorNames.length;
-   beanFactory.addBeanPostProcessor(new BeanPostProcessorChecker(beanFactory, beanProcessorTargetCount));
+    // Register BeanPostProcessorChecker that logs an info message when
+    // a bean is created during BeanPostProcessor instantiation, i.e. when
+    // a bean is not eligible for getting processed by all BeanPostProcessors.
+    // 额外注册一个 BeanPostProcessorChecker 类型的 addBeanPostProcessor bean后置处理器
+    int beanProcessorTargetCount = beanFactory.getBeanPostProcessorCount() + 1 + postProcessorNames.length;
+    beanFactory.addBeanPostProcessor(new BeanPostProcessorChecker(beanFactory, beanProcessorTargetCount));
 
-   // Separate between BeanPostProcessors that implement PriorityOrdered,
-   // Ordered, and the rest.
-   List<BeanPostProcessor> priorityOrderedPostProcessors = new ArrayList<>();
-   List<BeanPostProcessor> internalPostProcessors = new ArrayList<>();
-   List<String> orderedPostProcessorNames = new ArrayList<>();
-   List<String> nonOrderedPostProcessorNames = new ArrayList<>();
-   for (String ppName : postProcessorNames) {
-      if (beanFactory.isTypeMatch(ppName, PriorityOrdered.class)) {
-         BeanPostProcessor pp = beanFactory.getBean(ppName, BeanPostProcessor.class);
-         priorityOrderedPostProcessors.add(pp);
-         if (pp instanceof MergedBeanDefinitionPostProcessor) {
+    // Separate between BeanPostProcessors that implement PriorityOrdered,
+    // Ordered, and the rest.
+    //分离这些BeanPostProcessor，看哪些实现了priorityOrdered接口，哪些实现了 ordered 接口；包括哪些是原生的没有实现什么接口的。
+    /*
+    设置两个保存的 BeanPostProcessor 实现类的容器
+    	第一个用来保存实现了 PriorityOrdered 接口的 beam 实例，
+    	第二个用来保存实现了 MergedBeanDefinitionPostProcessor 接口的 bean 实例 - 内部 bean 实例
+   	*/
+    List<BeanPostProcessor> priorityOrderedPostProcessors = new ArrayList<>();
+    List<BeanPostProcessor> internalPostProcessors = new ArrayList<>();
+    // 第一个保存按照 Order 属性排序的 bean 后置处理器的 id；第二个用来保存按照默认顺序排序的 bean 后置处理器 id
+    List<String> orderedPostProcessorNames = new ArrayList<>();
+    List<String> nonOrderedPostProcessorNames = new ArrayList<>();
+    //对 BeanPostProcessor 作处理
+    //遍历从 beanfactory 中获取的 bean id
+    for (String ppName : postProcessorNames) {
+        //判断这些 BeanPostProcessor 是不是 PriorityOrdered 接口	（PriorityOrdered是ordered的子类）
+        //用于定义 BeanPostProcessor 的工作优先级
+        if (beanFactory.isTypeMatch(ppName, PriorityOrdered.class)) {
+            //从对应的beanFactory中获取对应的 bean实例
+            BeanPostProcessor pp  = beanFactory.getBean(ppName, BeanPostProcessor.class);
+			//添加到 priorityOrderedPostProcessors 中
+            priorityOrderedPostProcessors.add(pp);
+            //如果是 MergedBeanDefinitionPostProcessor的实例 又保存到 internalPostProcessors
+            if (pp instanceof MergedBeanDefinitionPostProcessor) {
+                internalPostProcessors.add(pp);
+            }
+        }
+        //或者其他
+        else if (beanFactory.isTypeMatch(ppName, Ordered.class)) {
+            orderedPostProcessorNames.add(ppName);
+        }
+        else {
+            nonOrderedPostProcessorNames.add(ppName);
+        }
+    }
+
+    // First, register the BeanPostProcessors that implement PriorityOrdered.
+    // 首先，注册实现了 PriorityOrdered 接口的 BeanPostProcessors
+    // 对实现了 priorityOrdered 接口的 bean 后置处理器进行排序
+    sortPostProcessors(priorityOrderedPostProcessors, beanFactory);
+    // 注册
+    registerBeanPostProcessors(beanFactory, priorityOrderedPostProcessors);
+
+    // Next, register the BeanPostProcessors that implement Ordered.
+    // 其次，注册实现了 Ordered 接口的 BeanPostProcessors
+    // 创建一个 List 容器，用来保存实现 Order 接口的 bean 后置处理器的实例
+    List<BeanPostProcessor> orderedPostProcessors = new ArrayList<>(orderedPostProcessorNames.size());
+    for (String ppName : orderedPostProcessorNames) {
+        BeanPostProcessor pp = beanFactory.getBean(ppName, BeanPostProcessor.class);
+        orderedPostProcessors.add(pp);
+        if (pp instanceof MergedBeanDefinitionPostProcessor) {
             internalPostProcessors.add(pp);
-         }
-      }
-      else if (beanFactory.isTypeMatch(ppName, Ordered.class)) {
-         orderedPostProcessorNames.add(ppName);
-      }
-      else {
-         nonOrderedPostProcessorNames.add(ppName);
-      }
-   }
+        }
+    }
+    sortPostProcessors(orderedPostProcessors, beanFactory);
+    registerBeanPostProcessors(beanFactory, orderedPostProcessors);
 
-   // First, register the BeanPostProcessors that implement PriorityOrdered.
-   sortPostProcessors(priorityOrderedPostProcessors, beanFactory);
-   registerBeanPostProcessors(beanFactory, priorityOrderedPostProcessors);
+    // Now, register all regular BeanPostProcessors.
+    // 现在 注册这些 其余普通的 没有实现优先级的 BeanPostProcessors
+    List<BeanPostProcessor> nonOrderedPostProcessors = new ArrayList<>(nonOrderedPostProcessorNames.size());
+    for (String ppName : nonOrderedPostProcessorNames) {
+        BeanPostProcessor pp = beanFactory.getBean(ppName, BeanPostProcessor.class);
+        nonOrderedPostProcessors.add(pp);
+        if (pp instanceof MergedBeanDefinitionPostProcessor) {
+            internalPostProcessors.add(pp);
+        }
+    }
+    registerBeanPostProcessors(beanFactory, nonOrderedPostProcessors);
 
-   // Next, register the BeanPostProcessors that implement Ordered.
-   List<BeanPostProcessor> orderedPostProcessors = new ArrayList<>(orderedPostProcessorNames.size());
-   for (String ppName : orderedPostProcessorNames) {
-      BeanPostProcessor pp = beanFactory.getBean(ppName, BeanPostProcessor.class);
-      orderedPostProcessors.add(pp);
-      if (pp instanceof MergedBeanDefinitionPostProcessor) {
-         internalPostProcessors.add(pp);
-      }
-   }
-   sortPostProcessors(orderedPostProcessors, beanFactory);
-   registerBeanPostProcessors(beanFactory, orderedPostProcessors);
+    // Finally, re-register all internal BeanPostProcessors.
+    // 最后 重新注册和排序所有内部的 bean 实例
+    sortPostProcessors(internalPostProcessors, beanFactory);
+    registerBeanPostProcessors(beanFactory, internalPostProcessors);
 
-   // Now, register all regular BeanPostProcessors.
-   List<BeanPostProcessor> nonOrderedPostProcessors = new ArrayList<>(nonOrderedPostProcessorNames.size());
-   for (String ppName : nonOrderedPostProcessorNames) {
-      BeanPostProcessor pp = beanFactory.getBean(ppName, BeanPostProcessor.class);
-      nonOrderedPostProcessors.add(pp);
-      if (pp instanceof MergedBeanDefinitionPostProcessor) {
-         internalPostProcessors.add(pp);
-      }
-   }
-   registerBeanPostProcessors(beanFactory, nonOrderedPostProcessors);
-
-   // Finally, re-register all internal BeanPostProcessors.
-   sortPostProcessors(internalPostProcessors, beanFactory);
-   registerBeanPostProcessors(beanFactory, internalPostProcessors);
-
-   // Re-register post-processor for detecting inner beans as ApplicationListeners,
-   // moving it to the end of the processor chain (for picking up proxies etc).
-   beanFactory.addBeanPostProcessor(new ApplicationListenerDetector(applicationContext));
+    // Re-register post-processor for detecting inner beans as ApplicationListeners,
+    // moving it to the end of the processor chain (for picking up proxies etc).
+    // 重新注册为applicationlistener 用于检测内部 bean 的 bean 后置处理器，但其作为处理器链的末尾
+    beanFactory.addBeanPostProcessor(new ApplicationListenerDetector(applicationContext));
 }
 ```
 
 
 
-​		1、先按照类型拿到IOC容器中所有需要创建的后置处理器，即先获取IOC容器中已经定义了的需要创建对象的所有BeanPostProcessor。这可以从如下这行代码中得知：
+- 1）先按照类型拿到IOC容器中所有需要创建的后置处理器，即先获取IOC容器中已经定义了的需要创建对象的所有BeanPostProcessor。这可以从如下这行代码中得知：
 
+~~~java
 String[] postProcessorNames = beanFactory.getBeanNamesForType(BeanPostProcessor.class, true, false);
-1
-你可能要问了，为什么IOC容器中会有一些已定义的BeanPostProcessor呢？这是因为在前面创建IOC容器时，需要先传入配置类，而我们在解析配置类的时候，由于这个配置类里面有一个@EnableAspectJAutoProxy注解，对于该注解，我们之前也说过，它会为我们容器中注册一个AnnotationAwareAspectJAutoProxyCreator（后置处理器），这还仅仅是这个@EnableAspectJAutoProxy注解做的事，除此之外，容器中还有一些默认的后置处理器的定义。
+~~~
+
+你可能要问了，为什么IOC容器中会有一些已定义的`BeanPostProcessor`呢？这是因为在前面创建IOC容器时，需要先传入配置类，而我们在解析配置类的时候，由于这个配置类里面有一个@`EnableAspectJAutoProxy`注解，对于该注解，我们之前也说过，它会为我们容器中注册一个`AnnotationAwareAspectJAutoProxyCreator`（后置处理器），这还仅仅是这个@`EnableAspectJAutoProxy`注解做的事，除此之外，容器中还有一些默认的后置处理器的定义。
 
 所以，程序运行到这，容器中已经有一些我们将要用的后置处理器了，只不过现在还没创建对象，都只是一些定义，也就是说容器中有哪些后置处理器。
+
+
+
+- 2）继续往下看这个registerBeanPostProcessors()方法，可以看到它里面还有其他的逻辑，如下所示：
+
+~~~java
+beanFactory.addBeanPostProcessor(new BeanPostProcessorChecker(beanFactory, beanProcessorTargetCount));
+~~~
+
+​	说的是给beanFactory中额外还加了一些其他的BeanPostProcessor，也就是说给容器中加别的BeanPostProcessor
+
+- 3）继续往下看这个registerBeanPostProcessors()方法，发现它里面还有这样的注释，如下所示：
+
+~~~java
+// Separate between BeanPostProcessors that implement PriorityOrdered,
+// Ordered, and the rest.
+List<BeanPostProcessor> priorityOrderedPostProcessors = new ArrayList<BeanPostProcessor>();
+/************下面是代码，省略************/
+~~~
+
+​	说的是分离这些BeanPostProcessor，看哪些是实现了PriorityOrdered接口的，哪些又是实现了Ordered接口的，包括哪些是原生的没有实现什么接口的。所以，在这儿，对这些BeanPostProcessor还做了一些处理，所做的处理看以下代码便一目了然。
+
+~~~java
+for (String ppName : postProcessorNames) {
+    //判断这些 BeanPostProcessor 是不是 PriorityOrdered 接口	（PriorityOrdered是ordered的子类）
+    //用于定义 BeanPostProcessor 的工作优先级
+    if (beanFactory.isTypeMatch(ppName, PriorityOrdered.class)) {
+        //从对应的beanFactory中获取对应的 bean实例
+        BeanPostProcessor pp  = beanFactory.getBean(ppName, BeanPostProcessor.class);
+        //添加到 priorityOrderedPostProcessors 中
+        priorityOrderedPostProcessors.add(pp);
+        //如果是 MergedBeanDefinitionPostProcessor的实例 又保存到 internalPostProcessors
+        if (pp instanceof MergedBeanDefinitionPostProcessor) {
+            internalPostProcessors.add(pp);
+        }
+    }
+    //或者其他
+    else if (beanFactory.isTypeMatch(ppName, Ordered.class)) {
+        orderedPostProcessorNames.add(ppName);
+    }
+    else {
+        nonOrderedPostProcessorNames.add(ppName);
+    }
+}
+~~~
+
+​	拿到IOC容器中所有这些BeanPostProcessor之后，是怎么处理的呢？它是来看我们这个BeanPostProcessor是不是实现了PriorityOrdered接口，我们不妨看一下PriorityOrdered接口的源码，如下图所示。
+
+![image-20210526093327601](spring-annotation.assets/image-20210526093327601.png)
+
+​	可以看到该接口其实是Ordered接口旗下的，也就是说它继承了Ordered接口。进一步说明，IOC容器中的那些BeanPostProcessor是有优先级排序的。
+
+​	好了，现在我们知道了这样一个结论，那就是：**IOC容器中的那些BeanPostProcessor可以实现PriorityOrdered以及Ordered这些接口来定义它们工作的优先级，即谁先前谁先后。**
+
+​	回到代码中，就不难看到，它是在这儿将这些`BeanPostProcessor`做了一下划分，如果`BeanPostProcessor`实现了`PriorityOrdered`接口，那么就将其保存在名为`priorityOrderedPostProcessors`的List集合中，并且要是该`BeanPostProcessor`还是`MergedBeanDefinitionPostProcessor`这种类型的，则还得将其保存在名为`internalPostProcessors`的List集合中。
+
+- 4）继续往下看这个registerBeanPostProcessors()方法，主要是看其中的注释，不难发现有以下三步：
+  - 优先注册实现了PriorityOrdered接口的BeanPostProcessor
+  - 再给容器中注册实现了Ordered接口的BeanPostProcessor
+  - 最后再注册没实现优先级接口的BeanPostProcessor
+
+  那么，所谓的注册BeanPostProcessor又是什么呢？我们还是来到程序停留的地方，为啥子程序会停留在这儿呢？因为咱们现在即将要创建的名称为internalAutoProxyCreator的组件（其实它就是我们之前经常讲的AnnotationAwareAspectJAutoProxyCreator）实现了Ordered接口，这只要查看AnnotationAwareAspectJAutoProxyCreator类的源码便知，一级一级地往上查。
+
+  ![image-20210526093526844](spring-annotation.assets/image-20210526093526844.png)
+
+  可以看到，是先拿到要注册的BeanPostProcessor的名字，然后再从beanFactory中来获取。
+
+接下来，我们就要获取相应名字的BeanPostProcessor了，怎么获取呢？继续跟进方法调用栈，如下图所示，可以看到现在是定位到了AbstractBeanFactory抽象类的getBean()方法中。
+
+​	![image-20210526095103135](spring-annotation.assets/image-20210526095103135.png)
+
+​	我们继续跟进方法调用栈，如下图所示，可以看到现在是定位到了AbstractBeanFactory抽象类的doGetBean()方法中。
+
+![image-20210526095127290](spring-annotation.assets/image-20210526095127290.png)
+
+beanFactory.getBean() -> doGetBean()：获取 bean 实例 (这里其实是创建一个 bean 实例)
+
+```java
+protected <T> T doGetBean(
+			String name, @Nullable Class<T> requiredType, @Nullable Object[] args, boolean typeCheckOnly)
+			throws BeansException {
+
+    // 包装对应的 bean id
+    String beanName = transformedBeanName(name);
+    Object beanInstance;
+
+    // 从缓存中获取对应的 bean 实例
+    Object sharedInstance = getSingleton(beanName);
+    // 如果 bean 实例不为空且参数为 null
+    if (sharedInstance != null && args == null) {
+        ...
+    }
+    
+    ...
+            
+    else {
+        ...
+            
+        try {
+            ...
+            // 获取对应的 bean 定义信息对象
+            RootBeanDefinition mbd = getMergedLocalBeanDefinition(beanName);
+            ...
+            
+            if (requiredType != null) {
+                beanCreation.tag("beanType", requiredType::toString);
+            }
+            // 获取对应的 bean 定义信息对象
+            RootBeanDefinition mbd = getMergedLocalBeanDefinition(beanName);
+         	// 检查 bean 定义信息对象
+            checkMergedBeanDefinition(mbd, beanName, args);
+            
+            // 保证当前 bean 依赖的 bean 实例初始化完成
+            String[] dependsOn = mbd.getDependsOn();
+            // 对依赖的 bean 实例进行初始化
+            if (dependsOn != null) {
+                for (String dep : dependsOn) {
+                    if (isDependent(beanName, dep)) {
+                        throw new BeanCreationException(mbd.getResourceDescription(), beanName,
+                                                        "Circular depends-on relationship between '" + beanName + "' and '" + dep + "'");
+                    }
+                    registerDependentBean(dep, beanName);
+                    try {
+                        getBean(dep);
+                    }
+                    catch (NoSuchBeanDefinitionException ex) {
+                        throw new BeanCreationException(mbd.getResourceDescription(), beanName,
+                                                        "'" + beanName + "' depends on missing bean '" + dep + "'", ex);
+                    }
+                }
+            }
+            
+            // 根据 bean 定义信息对象创建 bean 实例
+            if (mbd.isSingleton()) {
+                sharedInstance = getSingleton(beanName, () -> {
+                    try {
+                        // 创建 bean 实例
+                        return createBean(beanName, mbd, args);
+                    }
+                    catch (BeansException ex) {
+                        destroySingleton(beanName);
+                        throw ex;
+                    }
+                });
+                beanInstance = getObjectForBeanInstance(sharedInstance, name, beanName, mbd);
+         	}
+        }
+    }
+}
+```
+
+这个方法特别特别的长，这儿我就不再详细分析它了，只须关注程序停留的这行代码即可。这行代码的意思是调用getSingleton()方法来获取单实例的bean，但是呢，IOC容器中第一次并不会有这个bean，所以第一次获取它肯定是会有问题的。
+
+我们继续跟进方法调用栈，如下图所示，可以看到现在是定位到了DefaultSingletonBeanRegistry类的getSingleton()方法中。
+
+![image-20210526095659277](spring-annotation.assets/image-20210526095659277.png)
+
+可以发现，现在就是来创建bean的，也就是说如果获取不到那么就创建bean。**咱们现在就是需要注册BeanPostProcessor，说白了，实际上就是创建BeanPostProcessor对象，然后保存在容器中。**
+
+那么接下来，我们就来看看是如何创建出名称为internalAutoProxyCreator的BeanPostProcessor的，它的类型其实就是我们之前经常说的AnnotationAwareAspectJAutoProxyCreator。我们就以它为例，来看看它这个对象是怎么创建出来的。
+
+
+我们继续跟进方法调用栈，如下图所示，可以看到现在是定位到了AbstractAutowireCapableBeanFactory抽象类的createBean()方法中。
+
+![image-20210526100242357](spring-annotation.assets/image-20210526100242357.png)
+
+程序停留在这儿，就是在初始化bean实例，说明bean实例已经创建好了，如果你要不信的话，那么可以往前翻阅该doCreateBean()方法，这时你应该会看到一个createBeanInstance()方法，说的就是bean实例的创建。创建的是哪个bean实例呢？就是名称为internalAutoProxyCreator的实例，该实例的类型就是我们之前经常说的AnnotationAwareAspectJAutoProxyCreator，即创建这个类型的实例。创建好了之后，就在程序停留的地方进行初始化。
+
+所以，整个的过程就应该是下面这个样子的：
+
+- 首先创建bean的实例
+- 然后给bean的各种属性赋值（即调用populateBean()方法）
+- 接着初始化bean（即调用initializeBean()方法），这个初始化bean其实特别地重要，因为我们这个后置处理器就是在bean初始化的前后进行工作的。
+
+
+
+接下来，我们就来看看这个bean的实例是如何初始化的。继续跟进方法调用栈，如下图所示，可以看到现在是定位到了AbstractAutowireCapableBeanFactory抽象类的initializeBean()方法中。
+
+![image-20210526100739066](spring-annotation.assets/image-20210526100739066.png)
+
+我就在这儿为大家详细分析一下**初始化bean的流程**。
+
+1. 首先我们进入invokeAwareMethods()这个方法里面看一下，如下图所示。
+
+   
+
+   ![image-20210526105003272](spring-annotation.assets/image-20210526105003272.png)
+
+   其实，这个方法是来判断我们这个bean对象是不是Aware接口的，如果是，并且它还是BeanNameAware、BeanClassLoaderAware以及BeanFactoryAware这几个Aware接口中的其中一个，那么就调用相关的Aware接口方法，**即处理Aware接口的方法回调。**
+
+   现在当前的这个bean叫internalAutoProxyCreator，并且这个bean对象已经被创建出来了，创建出来的这个bean对象之前我们也分析过，它是有实现BeanFactoryAware接口的，故而会调用相关的Aware接口方法，这也是程序为什么会停留在invokeAwareMethods()这个方法的原因。
+
+2. 还是回到AbstractAutowireCapableBeanFactory抽象类的initializeBean()方法中，即程序停留的地方。如果invokeAwareMethods()这个方法执行完了以后，那么后续又会发生什么呢？
+
+   往下翻阅initializeBean()方法，会发现有一个叫applyBeanPostProcessorsBeforeInitialization的方法，如下图所示。
+
+   ![image-20210526105109597](spring-annotation.assets/image-20210526105109597.png)
+
+   这个方法调用完以后，会返回一个被包装的bean。
+
+   该方法的意思其实就是应用后置处理器的`postProcessBeforeInitialization`()方法。我们可以进入该方法中去看一看，到底是怎么应用后置处理器的`postProcessBeforeInitialization`()方法的？
+
+   
+
+   可以看到，它是拿到所有的后置处理器，然后再调用后置处理器的postProcessBeforeInitialization()方法，也就是说bean初始化之前后置处理器的调用在这儿。
+
+   
+
+3. 还是回到程序停留的地方，继续往下翻阅initializeBean()方法，你会发现还有一个叫invokeInitMethods的方法，即执行自定义的初始化方法。
+
+   
+
+   这个自定义的初始化方法呢，你可以用@bean注解来定义，指定一下初始化方法是什么，销毁方法又是什么，这个我们之前都说过了。
+
+4. 自定义的初始化方法执行完以后，又有一个叫applyBeanPostProcessorsAfterInitialization的方法，该方法的意思其实就是应用后置处理器的postProcessAfterInitialization()方法。我们可以进入该方法中去看一看，到底是怎么应用后置处理器的postProcessAfterInitialization()方法的？
+   ![image-20210526105410343](spring-annotation.assets/image-20210526105410343.png)
+
+   依旧是拿到所有的后置处理器，然后再调用后置处理器的postProcessAfterInitialization()方法。
+
+   所以，后置处理器的这两个postProcessBeforeInitialization()与postProcessAfterInitialization()方法前后的执行，就是在这块体现的。我们在这儿也清楚地看到了。
+
+   接下来，我们还是回到程序停留的地方，即下面这行代码处。
+
+   ~~~java
+   invokeAwareMethods(beanName, bean);
+   ~~~
+
+   
+
+   调用initializeBean()方法初始化bean的时候，还得执行那些Aware接口的方法，那到底怎么执行呢？正好我们知道，当前的这个bean它确实是实现了BeanFactoryAware接口。因此我们继续跟进方法调用栈，如下图所示，可以看到现在是定位到了AbstractAutowireCapableBeanFactory抽象类的invokeAwareMethods()方法中。
+
+   ![image-20210526112501760](spring-annotation.assets/image-20210526112501760.png)
+
+   再继续跟进方法调用栈，如下图所示，可以看到现在是定位到了AbstractAdvisorAutoProxyCreator抽象类的setBeanFactory()方法中。
+
+   ![image-20210526112515542](spring-annotation.assets/image-20210526112515542.png)
+
+   可以看到现在调用的是AbstractAdvisorAutoProxyCreator抽象类中的setBeanFactory()方法。我们要创建的是AnnotationAwareAspectJAutoProxyCreator对象，但是调用的却是它父类的setBeanFactory()方法。
+
+   至此，咱们一步一步地分析，就分析到这儿了，可以说是相当地不简单了，不知你看清了没有。
+
+   接下来，按下F6快捷键让程序往下运行，父类的setBeanFactory()方法便会被调用，再按下F6快捷键让程序往下运行，一直让程序运行到如下图所示的这行代码处。
+
+   ![image-20210526112535759](spring-annotation.assets/image-20210526112535759.png)
+
+   可以看到父类的setBeanFactory()方法被调用完了。然后按下`F6`快捷键继续让程序往下运行，这时会运行到如下这行代码处。
+
+   ~~~java
+   initBeanFactory((ConfigurableListableBeanFactory) beanFactory);
+   ~~~
+
+   该initBeanFactory()方法就是用来初始化BeanFactory的。我们按下F5快捷键进入到当前方法内部，如下图所示，可以看到调用到了AnnotationAwareAspectJAutoProxyCreator这个类的initBeanFactory()方法中了，即调到了我们要给容器中创建的AspectJ自动代理创建器的initBeanFactory()方法中。
+   ![image-20210526112620652](spring-annotation.assets/image-20210526112620652.png)
+
+   接着按下`F6`快捷键继续让程序往下运行，运行完该方法，如下图所示。
+
+   ![image-20210526112633336](spring-annotation.assets/image-20210526112633336.png)
+
+   可以看到这个initBeanFactory()方法创建了两个东西，一个叫ReflectiveAspectJAdvisorFactory，还有一个叫BeanFactoryAspectJAdvisorsBuilderAdapter，它相当于把之前创建的aspectJAdvisorFactory以及beanFactory重新包装了一下，就只是这样。
+
+   
+
+   至此，整个这么一个流程下来以后，咱们的这个BeanPostProcessor，我们是以AnnotationAwareAspectJAutoProxyCreator（就是@EnableAspectJAutoProxy这个注解核心导入的BeanPostProcessor）为例来讲解的，就创建成功了。并且还调用了它的initBeanFactory()方法得到了一些什么aspectJAdvisorFactory和aspectJAdvisorsBuilder，这两个东东大家知道一下就行了。至此，整个initBeanFactory()方法我们就说完了，也就是说我们整个的后置处理器的注册以及创建过程就说完了
+
+   注册就是**拿到所有的BeanPostProcessor，然后调用beanFactory的addBeanPostProcessor()方法将BeanPostProcessor注册到BeanFactory中。**
+
+
+

@@ -89,6 +89,19 @@ import org.springframework.context.annotation.EnableAspectJAutoProxy;
  *                  现在 再来注册所有没实现优先级接口的 BeanPostProcessors
  *              (4).注册BeanPostProcessors，实际上时创建BeanPostProcessors对象 保存于容器中
  *                  创建internalAutoProxyCreator 的 BeanPostProcessors [AnnotationAwareAspectJAutoProxyCreator] 类型 的 后置处理器
+ *                  FactoryBean.createBean() -> doCreateBean()：创建 bean 实例
+ *                      1.创建bean的实例
+ *                      2.调用 populateBean() 方法完成对 bean 实例的属性赋值
+ *                          populateBean(beanName, mbd, instanceWrapper);
+ *                      3.调用 initializeBean() 方法进行 bean 的初始化工作
+ *                          初始化bean的流程：
+ *                          1）invokeAwareMethods();进行判断 bean 实例是否实现某些 **Aware ** 接口，如果有就注册对应的组件
+ *                          2）applyBeanPostProcessorsBeforeInitialization(wrappedBean, beanName);//应用后置处理器的postProcessBeforeInitialization（）初始化之前方法
+ *                          3）invokeInitMethod(): 执行自定义的初始化方法
+ *                          4）applyBeanPostProcessorsAfterInitialization 拿到所有的后置处理器 执行后置处理器的postProcessAfterInitialization方法
+ *                          5）返回包装后的 bean 实例 - wrappedBean
+ *                      4.以BeanPostProcessor(AnnotationAwareAspectJAutoProxyCreator)为例 创建成功
+ *                      5.beanfactory.registerBeanPostProcessors()：将 bean 后置处理器注册到 beanfactory 中
  *
  * @see org.springframework.context.support.PostProcessorRegistrationDelegate
  */
