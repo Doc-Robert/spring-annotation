@@ -1097,7 +1097,7 @@ public class Human implements ApplicationContextAware, BeanNameAware, EmbeddedVa
 
 ### Aop原理
 
-#### (1). @EnableAspectJAutoProxy 注解
+#### (1).@EnableAspectJAutoProxy 注解
 
 1. 进入后其使用了  `@Import`(AspectJAutoProxyRegistrar.class)；给容器中导入**AspectJAutoProxyRegistrar**；利用**AspectJAutoProxyRegistrar**自定义给容器注册bean
 
@@ -1553,5 +1553,478 @@ protected <T> T doGetBean(
 
    注册就是**拿到所有的BeanPostProcessor，然后调用beanFactory的addBeanPostProcessor()方法将BeanPostProcessor注册到BeanFactory中。**
 
+#### (3).AnnotationAwareAspectJAutoProxyCreator 的执行时机
+
+> 1. 在创建 bean 实例之前作为 **InstantiationAwareBeanPostProcessor** 接口的实现类尝试在**初始化 bean 实例前**创建对应的代理对象
+> 2. 在 bean 实例初始化工作之后，作为 **BeanPostProcessor** 接口的实现类尝试为 **bean 实例初始化之后**进行包装后返回(代理对象)
+
+1. 创建 IOC 容器时，在调用 registerBeanPostProcessors() 方法注册所有的 bean 后置处理器后
+
+   会调用 finishBeanFactoryInitialization() 方法注册**所有剩余的非延迟初始化单例 bean 实例**
+
+2. 内部会调用 preInstantiateSingletons() 方法完成
+
+   1. 获取容器中所有 bean id 以及对于的定义信息对象
+
+   2. 调用 isFactoryBean() 判断其是否为 FactoryBean，如果不是 -> getBean() -> doGetBean()
+
+   3. 调用 getSingleton() 判断该 bean 是否**存在于单例缓存(是否注册过)**：如果存在就获取对应的 bean 实例，进行包装后返回
+
+   4. 调用 createBean() -> toCreateBean() 创建实例
+
+   5. 在**实例化 bean 之前**，会调用 resolveBeforeInstantiation()
+
+      1. 该方法的主要作用是，判断能否通过 BeanPostProcessor 返回一个目标 bean 的代理对象，而不是手动注册一个 bean
+
+      2. 调用 applyBeanPostProcessorsBeforeInstantiation() & applyBeanPostProcessorsAfterInitialization() 方法
+
+         判断是否**支持为当前 bean 实例创建代理对象**，如果代理对象不为 null，就返回该代理对象
+
+         ```
+         if (targetType != null) {
+             bean = applyBeanPostProcessorsBeforeInstantiation(targetType, beanName);
+             if (bean != null) {
+                 bean = applyBeanPostProcessorsAfterInitialization(bean, beanName);
+             }
+         }
+         ```
+
+      3. 其中会遍历所有实现了 **InstantiationAwareBeanPostProcessor** 接口的 bean 后置处理器
+
+         (**AnnotationAwareAspectJAutoProxyCreator implements** InstantiationAwareBeanPostProcessor)
+
+   6. 总结：
+
+      - AnnotationAwareAspectJAutoProxyCreator 作为 InstantiationAwareBeanPostProcessor 接口(该接口也是 BeanProcessor 接口的实现类)的实现类
+
+        有两个对应的主要方法，一个是 **postProcessBeforeInstantiation**(在创建实例之前执行)，另一个是 **postProcessAfterInstantiation**(在创建实例之后执行)
+
+        **在创建 bean 实例之前，会调用这两个方法为符合规则的 bean 实例创建代理对象**
 
 
+
+
+
+#### (4).AnnotationAwareAspectJAutoProxyCreator 创建 AOP 代理
+
+> 1. 在 bean 的实例化之前 / bean 实例初始化之后
+>
+> 2. 先判断 bean 是否需要创建代理对象(advisedBeans.FALSE & 再判断)
+>
+> 3. 获取支持当前 bean 实例的增强器类
+>
+>    - 获取所有增强器类(通知方法)
+>
+>    - 筛选支持当前 bean 实例的增强器类
+>
+>    - 对增强器进行排序
+>
+> 4. 保存到 advisedBeans ，并标识为 TRUE(代表已经创建过对应的 bean 实例)
+>
+> 5. 创建 bean 的代理对象，根据一定的条件。选择 JDK(实现接口) / CGILB 实现的代理对象
+>
+> 6. 将代理对象保存到容器中作为对应的 bean 实例
+
+1. 在创建 bean 实例之前，调用对应的 postProcessBeforeInstantiation() 方法
+
+~~~java
+@Override
+public Object postProcessBeforeInstantiation(Class<?> beanClass, String beanName) {
+
+    Object cacheKey = getCacheKey(beanClass, beanName);
+
+    /*
+    StringUtils.hasLength(String): 判断字符串不为 null 且 不为空
+    this.targetSourcedBeans：空集合
+    */
+    if (!StringUtils.hasLength(beanName) || !this.targetSourcedBeans.contains(beanName)) {
+        /// adviseBeans: 保存不需要创建代理对象和已经创建过代理对象的 bean id
+        if (this.advisedBeans.containsKey(cacheKey)) {
+            return null;
+        }
+        /*
+          不需要创建 bean 代理对象
+          	1) 当前 bean 继承了 Advice、Pointcut、Advisor、AopInfrastructureBean 
+          	2) 当前 bean 实例为切面类
+          	3) shouldSkip() - 当 bean 实例为 AspectJPointcutAdvisor 子类且为候选的增强器 bean 实例
+              	if (advisor instanceof AspectJPointcutAdvisor &&
+  						((AspectJPointcutAdvisor) advisor).getAspectName().equals(beanName)) {
+  					return true;
+  				}
+  				return super.shouldSkip(beanClass, beanName); // return false;
+          */
+        if (isInfrastructureClass(beanClass) || shouldSkip(beanClass, beanName)) {
+            this.advisedBeans.put(cacheKey, Boolean.FALSE);
+            return null;
+        }
+    }
+
+    ...
+
+    return null;
+}
+
+~~~
+
+2. 当没能在创建 bean 实例前创建对应的代理对象时，会在**bean 实例的初始化工作之后**
+
+   调用 `AbstractAutoProxyCreator.postProcessAfterInitialization()` -> **wrapIfNecessary**() - 在需要时进行包装
+
+   ~~~java
+   protected Object wrapIfNecessary(Object bean, String beanName, Object cacheKey) {
+       if (StringUtils.hasLength(beanName) && this.targetSourcedBeans.contains(beanName)) {
+           return bean;
+       }
+       // 判断当前的 bean 实例是否不需要代理对象
+       if (Boolean.FALSE.equals(this.advisedBeans.get(cacheKey))) {
+           return bean;
+       }
+       // 和 3 中一样，判断对应 bean 实例是否需要创建代理对象
+       if (isInfrastructureClass(bean.getClass()) || shouldSkip(bean.getClass(), beanName)) {
+           this.advisedBeans.put(cacheKey, Boolean.FALSE);
+           return bean;
+       }
+   
+       // 通过 getAdvicesAndAdvisorsForBean() 获取适用于当前 bean 的通知方法
+       Object[] specificInterceptors = getAdvicesAndAdvisorsForBean()(bean.getClass(), beanName, null);
+       // 如果不为 NULL(DO_NOT_PROXY)
+       if (specificInterceptors != DO_NOT_PROXY) {
+           // 添加到 advisedBeans 中标识已经创建过代理对象
+           this.advisedBeans.put(cacheKey, Boolean.TRUE);
+           // 创建代理对象
+           Object proxy = createProxy(
+               bean.getClass(), beanName, specificInterceptors, new SingletonTargetSource(bean));
+           this.proxyTypes.put(cacheKey, proxy.getClass());
+           return proxy;
+       }
+   
+       this.advisedBeans.put(cacheKey, Boolean.FALSE);
+       return bean;
+   }
+   
+   ~~~
+
+3. getAdvicesAndAdvisorsForBean() 获取适用于指定 bean 实例增强器(通知方法) -> findEligibleAdvisors()
+
+   ~~~java
+   protected List<Advisor> findEligibleAdvisors(Class<?> beanClass, String beanName) {
+       // 获取所有候选的增强器(通知方法)
+       List<Advisor> candidateAdvisors = findCandidateAdvisors();
+       // 获取支持当前 bean 实例的增强器
+       List<Advisor> eligibleAdvisors = findAdvisorsThatCanApply(candidateAdvisors, beanClass, beanName);
+       extendAdvisors(eligibleAdvisors);
+       if (!eligibleAdvisors.isEmpty()) {
+           // 排序
+           eligibleAdvisors = sortAdvisors(eligibleAdvisors);
+       }
+       return eligibleAdvisors;
+   }
+   
+   ~~~
+
+4. findAdvisorsThatCanApply() 获取适用于当前 bean 实例的增强器
+
+   ~~~java
+   public static List<Advisor> findAdvisorsThatCanApply(List<Advisor> candidateAdvisors, Class<?> clazz) {
+       // 判断候选增强器是否为空
+       if (candidateAdvisors.isEmpty()) {
+           return candidateAdvisors;
+       }
+       // 创建一个容器，保存支持当前 bean 实例的增强器
+       List<Advisor> eligibleAdvisors = new ArrayList<>();
+       for (Advisor candidate : candidateAdvisors) {
+           if (candidate instanceof IntroductionAdvisor && canApply(candidate, clazz)) {
+               eligibleAdvisors.add(candidate);
+           }
+       }
+       boolean hasIntroductions = !eligibleAdvisors.isEmpty();
+       for (Advisor candidate : candidateAdvisors) {
+           if (candidate instanceof IntroductionAdvisor) {
+               // already processed
+               continue;
+           }
+           // 在这里通过 canApply() 方法判断当前遍历的增强器对象是否支持 bean 实例
+           if (canApply(candidate, clazz, hasIntroductions)) {
+               // 保存到容器中
+               eligibleAdvisors.add(candidate);
+           }
+       }
+       return eligibleAdvisors;
+   }
+   
+   ~~~
+
+5. canApply() 中会根据 **切入点表达式** 判断是否支持当前 bean 实例
+
+6. 接(2): createProxy() -> ProxyFactory.getProxy() -> ... -> DefaultAopProxyFactory.createAopProxy() - 创建代理对象
+
+   ~~~java
+   // (ProxyFactory) config
+   public AopProxy createAopProxy(AdvisedSupport config) throws AopConfigException {
+       if (!NativeDetector.inNativeImage() &&
+           (config.isOptimize() || config.isProxyTargetClass() || hasNoUserSuppliedProxyInterfaces(config))) {
+           // 从 config 获取目标对象
+           Class<?> targetClass = config.getTargetClass();
+           if (targetClass == null) {
+               throw new AopConfigException("TargetSource cannot determine target class: " +
+                                            "Either an interface or a target is required for proxy creation.");
+           }
+           // 判断目标对象是否实现接口 || 目标对象也是一个代理对象
+           if (targetClass.isInterface() || Proxy.isProxyClass(targetClass)) {
+               // 通过 JDK 动态代理创建代理对象
+               return new JdkDynamicAopProxy(config);
+           }
+           // 通过 cglib 动态代理创建代理对象
+           return new ObjenesisCglibAopProxy(config);
+       }
+       else {
+           return new JdkDynamicAopProxy(config);
+       }
+   }
+   
+   ~~~
+
+7. 会将对应的代理对象作为对应的 bean 实例保存在组件中，通过容器获取，执行目标方法时，代理对象将会执行相应的通知方法
+
+#### (5).目标方法执行 - 获取拦截器链
+
+> 容器中保存了对应组件的代理对象，这个对象中保存了一些详细的信息(增强器、目标对象、xxx)
+>
+> 总结：
+>
+> 1. 目标方法执行时，通过 CglibAopProxy.#DynamicAdvisedInterceptor.intercept() 进行拦截
+> 2. 调用 AdvisedSupport.getInterceptorsAndDynamicInterceptionAdvice() 获取拦截器链
+>    1. 判断缓存中是否存在对应的拦截器链，如果有就直接返回
+>    2. 通过 DefaultAdvisorChainFactory.getInterceptorsAndDynamicInterceptionAdvice() 获取拦截器链
+>    3. 通过 DefaultAdvisorAdapterRegistry.getInterceptors() 将增强器转换成方法拦截器 (advice -> MethodInterceptor)
+>       - 判断是否实现了 MethodInterceptor 接口，如果实现了，强转后保存
+>       - 通过 **AdviceAdapter** 适配器实现 advice -> MethodInterceptor 后保存
+>       - 返回 MethodInterceptor List
+>    4. 保存到缓存中
+>    5. 返回拦截器链
+>
+> 拦截器链的机制：通过链式调用，保证目标方法和通知方法的执行顺序
+
+1. 调用目标方法执行 -> CglibAopProxy.#DynamicAdvisedInterceptor.intercept() 进行拦截
+
+   ~~~java
+   @Override
+   @Nullable
+   public Object intercept(Object proxy, Method method, Object[] args, MethodProxy methodProxy) throws Throwable {
+       Object oldProxy = null;
+       boolean setProxyContext = false;
+       Object target = null;
+       // 获取目标源
+       TargetSource targetSource = this.advised.getTargetSource();
+       try {
+           if (this.advised.exposeProxy) {
+               oldProxy = AopContext.setCurrentProxy(proxy);
+               setProxyContext = true;
+           }
+           // 从目标源中获取目标对象 target
+           target = targetSource.getTarget();
+           Class<?> targetClass = (target != null ? target.getClass() : null);
+           // 1. 根据需要执行的方法和目标对象获取对应的拦截器链
+           List<Object> chain = this.advised.getInterceptorsAndDynamicInterceptionAdvice(method, targetClass);
+           Object retVal;
+           // 2. 如果拦截器链为空，就直接执行目标方法
+           if (chain.isEmpty() && Modifier.isPublic(method.getModifiers())) {
+               Object[] argsToUse = AopProxyUtils.adaptArgumentsIfNecessary(method, args);
+               retVal = methodProxy.invoke(target, argsToUse);
+           }
+           else {
+               // 3. 创建一个 CglibMethodInvocation 对象，通过 proceed() 方法执行拦截器链得到一个目标方法的返回值
+               retVal = new CglibMethodInvocation(proxy, target, method, args, targetClass, chain, methodProxy).proceed();
+           }
+           retVal = processReturnType(proxy, target, method, retVal);
+           return retVal;
+       }
+       finally {
+           if (target != null && !targetSource.isStatic()) {
+               targetSource.releaseTarget(target);
+           }
+           if (setProxyContext) {
+               AopContext.setCurrentProxy(oldProxy);
+           }
+       }
+   }
+   
+   ~~~
+
+2. AdvisedSupport.getInterceptorsAndDynamicInterceptionAdvice() 获取拦截器链
+
+   ~~~java
+   public List<Object> getInterceptorsAndDynamicInterceptionAdvice(Method method, @Nullable Class<?> targetClass) {
+       MethodCacheKey cacheKey = new MethodCacheKey(method);
+       // 判断能否成缓存中获取对应的拦截器链
+       List<Object> cached = this.methodCache.get(cacheKey);
+       if (cached == null) {
+           // 调用 ChainFactory.getInterceptorsAndDynamicInterceptionAdvice() 获取
+           cached = this.advisorChainFactory.getInterceptorsAndDynamicInterceptionAdvice(
+               this, method, targetClass);
+           // 保存到缓存中
+           this.methodCache.put(cacheKey, cached);
+       }
+       return cached;
+   }
+   
+   ~~~
+
+3. DefaultAdvisorChainFactory.getInterceptorsAndDynamicInterceptionAdvice()
+
+   ~~~java
+   @Override
+   public List<Object> getInterceptorsAndDynamicInterceptionAdvice(
+       Advised config, Method method, @Nullable Class<?> targetClass) {
+   	// 获取一个适配注册器
+       AdvisorAdapterRegistry registry = GlobalAdvisorAdapterRegistry.getInstance();
+       // 获取所有增强器
+       Advisor[] advisors = config.getAdvisors();
+       // 创建一个保存拦截器的容器，长度和增强器个数相同
+       List<Object> interceptorList = new ArrayList<>(advisors.length);
+       // 目标对象
+       Class<?> actualClass = (targetClass != null ? targetClass : method.getDeclaringClass());
+       Boolean hasIntroductions = null;
+   
+       for (Advisor advisor : advisors) {
+           // 对不同的增强器将其转换为拦截器
+           if (advisor instanceof PointcutAdvisor) {
+               // 转换为一个'切入点'
+               PointcutAdvisor pointcutAdvisor = (PointcutAdvisor) advisor;
+               // 判断当前切入点是否支持匹配目标对象
+               if (config.isPreFiltered() || pointcutAdvisor.getPointcut().getClassFilter().matches(actualClass)) {
+                 	// 获取方法的匹配器
+                   MethodMatcher mm = pointcutAdvisor.getPointcut().getMethodMatcher();
+                   boolean match;
+                   // 判断方法和类是否匹配
+                   if (mm instanceof IntroductionAwareMethodMatcher) {
+                       if (hasIntroductions == null) {
+                           hasIntroductions = hasMatchingIntroductions(advisors, actualClass);
+                       }
+                       match = ((IntroductionAwareMethodMatcher) mm).matches(method, actualClass, hasIntroductions);
+                   }
+                   else {
+                       match = mm.matches(method, actualClass);
+                   }
+                   if (match) {
+                       // 通过注册器将增强器转换为拦截器
+                       MethodInterceptor[] interceptors = registry.getInterceptors(advisor);
+                       if (mm.isRuntime()) {
+                           for (MethodInterceptor interceptor : interceptors) {
+                               interceptorList.add(new InterceptorAndDynamicMethodMatcher(interceptor, mm));
+                           }
+                       }
+                       else {
+                           interceptorList.addAll(Arrays.asList(interceptors));
+                       }
+                   }
+               }
+           }
+           ...
+       }
+   
+       return interceptorList;
+   }
+   
+   ~~~
+
+4. getInterceptors() 将增强器转换为 MethodInterceptor(方法拦截器)
+
+   ~~~java
+   @Override
+   public MethodInterceptor[] getInterceptors(Advisor advisor) throws UnknownAdviceTypeException {
+       // 创建一个容器，用来保存拦截器
+       List<MethodInterceptor> interceptors = new ArrayList<>(3);
+       // 获取通知
+       Advice advice = advisor.getAdvice();
+       // 如果实现了 MethodInterceptor 接口可以直接将其强转为方法拦截器
+       if (advice instanceof MethodInterceptor) {
+           interceptors.add((MethodInterceptor) advice);
+       }
+       // 使用 AdvisorAdapter 适配器将其转换成 MethodInterceptor
+       for (AdvisorAdapter adapter : this.adapters) {
+           if (adapter.supportsAdvice(advice)) {
+               interceptors.add(adapter.getInterceptor(advisor));
+           }
+       }
+       if (interceptors.isEmpty()) {
+           throw new UnknownAdviceTypeException(advisor.getAdvice());
+       }
+       // 转换为数组返回
+       return interceptors.toArray(new MethodInterceptor[0]);
+   }
+   
+   ~~~
+
+
+#### (6).目标方法的执行 - 链式调用
+
+1. CglibMethodInvocation.proceed() 
+
+   ~~~java
+   public Object proceed() throws Throwable {
+       /*
+       currentInterceptorIndex: 当前执行拦截器在拦截器链中的索引，默认为 -1
+       interceptorsAndDynamicMethodMatchers：拦截器链
+       这里相等由两个情况
+       	1) 当前拦截器链莫得长度，0-1 = -1
+       	2) 当前执行到的拦截器为拦截器链的最后一个
+       此时就会调用 invokeJoinpoint() 执行目标方法
+       */
+       if (this.currentInterceptorIndex == this.interceptorsAndDynamicMethodMatchers.size() - 1) {
+           return invokeJoinpoint();
+       }
+   
+       // 通过++this.currentInterceptorIndex获取下一个拦截器
+       Object interceptorOrInterceptionAdvice =
+           this.interceptorsAndDynamicMethodMatchers.get(++this.currentInterceptorIndex);
+       if (interceptorOrInterceptionAdvice instanceof InterceptorAndDynamicMethodMatcher) {
+           ...
+       }
+       else {
+           // 执行当前增强器的 invoke() 方法 - 不同的增强器会有不同的实现
+           return ((MethodInterceptor) interceptorOrInterceptionAdvice).invoke(this);
+       }
+   }
+   
+   ~~~
+
+2. 除了**前置通知拦截器和环绕通知拦截器**(先执行通知方法)，其他通知都会先通过 `mi.proceed()` 方法执行下一个拦截器
+
+   等待目标方法执行返回之后，才会根据目标方法的不同执行情况执行对应的通知方法
+
+#### (7).Aop 原理分析
+
+1. 通过 @EnableAspectJAutoProxy 注册 AnnotationAwareAspectJAutoProxyCreator 组件的 bean 定义信息对象
+
+2. 创建 IOC 容器，调用 refresh() 方法刷新容器(初始化容器)
+
+   1. 调用 registerBeanPostProcessors(beanFactory) 注册所有的 bean 后置处理器
+
+   2. 调用 finishBeanFactoryInitialization() 注册所有单例非延迟的 bean 实例
+
+      > AnnotationAwareAspectJAutoProxyCreator 作为一个 InstantiationAwareBeanPostProcessor 接口的实现类
+      >
+      > 会拦截 bean 实例的创建
+
+      - 创建 bean 实例前，调用 `postProcessBeforeInstantiation()` 方法判断能否为当前 bean 实例
+
+        注册一个代理对象，而不是手动注册，如果可以就直接返回；
+
+      - 在 bean 实例初始化之后，判断当前 bean 实例是否需要增强
+
+        如果需要，就将增强器(Advisor：通知方法的包装类)与当前 bean 实例进行包装，创建代理对象并返回
+
+3. 从容器中获取对应的组件，此时该组件为对应的代理对象
+
+4. 执行目标方法 
+
+   1. 通过 intercept() 方法进行拦截
+   2. 获取对应的拦截器链 -> 会将对应的增强器类包装成拦截器(Advisor -> MethodInterceptor)
+   3. 根据拦截器链的机制，保证目标方法和通知方法的顺序执行
+      - 正常执行：前置通知 -> 目标方法 -> 后置通知 -> 返回通知
+      - 异常执行：前置通知 -> 目标方法 -> 后置通知 -> 异常通知
+
+
+
+![AOP拦截器链调用](spring-annotation.assets/20201225114026135.png)

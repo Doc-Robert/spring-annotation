@@ -179,6 +179,34 @@ import org.springframework.context.annotation.EnableAspectJAutoProxy;
  *               (4).如果有拦截器链，把需要执行的 目标对象，目标方法，拦截器链等信息传入 一个CglibMethodInvocation对象
  *                   并调用 retVal = new CglibMethodInvocation(proxy, target, method, args, targetClass, chain, methodProxy).proceed();
  *               (5).拦截器链的触发过程：
+ *                  1.如果没有拦截器 直接执行目标目标方法，或者该拦截器的索引和拦截器数组-1 大小一样（执行到最后一个拦截器）执行目标方法
+ *                   currentInterceptorIndex: 当前执行拦截器在拦截器链中的索引，默认为 -1
+ *                      interceptorsAndDynamicMethodMatchers：拦截器链
+ *                  2.链式获取每一个拦截器 ，拦截器执行invoke（）方法；每一个拦截器等待下一个拦截器执行完成返回以后再来zhixing;
+ *                  根据 this.interceptorsAndDynamicMethodMatchers.get(++this.currentInterceptorIndex)获取下一个拦截器
+ *                  通过拦截器链的机制，保证通知方法与目标方法的执行顺序
+ *   Aop总结：
+ *          1.@EnableAspectJAutoProxy注解 开启Aop功能
+ *          2.该注解会给AOP注册一个组件 AnnotationAwareAspectJAutoProxyCreator
+ *          3.AnnotationAwareAspectJAutoProxyCreator 组件 是一个bean的后置处理器
+ *          4.容器的创建流程：
+ *              (1).registerBeanPostProcessors()方法 来注册后置处理器 ；然后创建AnnotationAwareAspectJAutoProxyCreator 对象
+ *              (2).finishBeanFactoryInitialization() 初始化剩余的 单实例bean
+ *                  1、其中就创建了 业务逻辑组件 和 切面组件
+ *                  2、AnnotationAwareAspectJAutoProxyCreator 后置处理器 会来拦截这个组件的创建过程
+ *                  3、组件创建完成后，判断组件是否需要增强：
+ *                      是：将切面的通知方法，包装成增强器（Advisor）；给业务逻辑组件 创建一个代理对象（默认是cglib）
+ *          5.执行目标业务方法：
+ *              (1).用代理对象去执行目标方法
+ *              (2).使用 CglibAopProxy.intercept(); 先拦截目标方法的执行
+ *                  1、先得到目标方法的拦截器链(增强器包装成拦截器 MethodInterceptor )
+ *                  2、利用拦截器的链式机制，依次进入每一个拦截器执行
+ *                  3、效果为：
+ *                      正常执行：前置通知 -》目标方法 -》后置通知 -》返回通知
+ *                      出现异常：前置通知 -》目标方法 -》后置通知 -》异常通知
+ *
+ *
+ *
 
  */
 @EnableAspectJAutoProxy //同在配置文件中 开启 切面自动代理
